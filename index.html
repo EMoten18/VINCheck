@@ -1,15 +1,79 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="manifest" href="manifest.json"><title>VINCheck</title><style>
-body{font-family:-apple-system,sans-serif;margin:0;background:#f5f6f8;color:#111827}header{background:#111827;color:white;padding:18px}main{padding:14px;max-width:760px;margin:auto}.actions,.tabs{display:flex;gap:8px;margin-bottom:12px}button,label{flex:1;padding:13px;border:0;border-radius:12px;background:#111827;color:white;font-weight:700;text-align:center}.alt{background:white;color:#111827;border:1px solid #ddd}input[type=file]{display:none}.batch,details{background:white;border:1px solid #ddd;border-radius:14px;margin:10px 0;overflow:hidden}.head{padding:12px}.vehicle{display:flex;gap:10px;padding:11px;border-top:1px solid #eee}.vehicle.done{opacity:.45;text-decoration:line-through}.vin{font-family:monospace;font-weight:800}.meta{font-size:12px;color:#666;margin-top:4px}.date{font-size:18px;font-weight:800;margin-top:20px}.empty{text-align:center;color:#777;padding:40px}.scan{background:#fff7d6;padding:10px;border-radius:10px;display:none}.overdue{color:#b42318;font-weight:800}select{padding:7px;border-radius:8px}
-</style></head><body><header><b style="font-size:22px">VINCheck ✓</b><div style="font-size:12px;opacity:.7">Photo → checklist → archive</div></header><main>
-<div class="actions"><label for="cam">📷 Take Photos</label><label class="alt" for="pick">🖼 Choose Photos</label></div><input id="cam" type="file" accept="image/*" capture="environment" multiple><input id="pick" type="file" accept="image/*" multiple>
-<div id="scan" class="scan"></div><div class="tabs"><button id="ta">Active</button><button id="th" class="alt">History</button></div><div id="active"></div><div id="history" style="display:none"></div></main>
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>VINCheck V3</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f6f8;color:#111827}
+header{background:#111827;color:#fff;padding:16px;position:sticky;top:0;z-index:3}.title{font-size:22px;font-weight:800}.ver{font-size:11px;opacity:.65}
+main{max-width:760px;margin:auto;padding:14px 14px 90px}.actions,.tabs{display:flex;gap:8px;margin-bottom:12px}
+button,label.btn{flex:1;border:0;border-radius:12px;padding:13px 10px;font-weight:750;font-size:15px;text-align:center;background:#111827;color:#fff}.light{background:#fff!important;color:#111827!important;border:1px solid #ddd!important}
+input[type=file]{display:none}.tabs button.on{background:#111827;color:#fff}.tabs button:not(.on){background:#fff;color:#111827;border:1px solid #ddd}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin:10px 0}.count{font-size:13px;color:#6b7280}select{padding:9px;border:1px solid #ddd;border-radius:9px;background:#fff}
+.card{display:grid;grid-template-columns:42px 1fr;background:#fff;border:1px solid #e5e7eb;border-radius:13px;padding:11px;margin:8px 0}.check{width:28px;height:28px}.vin{font-family:ui-monospace,Menlo,monospace;font-weight:850;font-size:15px;word-break:break-all}.meta{font-size:12px;color:#6b7280;line-height:1.5;margin-top:4px}.overdue{color:#b42318;font-weight:800}.date{font-size:18px;font-weight:850;margin:20px 2px 8px}.empty{text-align:center;color:#6b7280;padding:42px 15px}
+.scan{display:none;background:#fffbeb;border:1px solid #fde68a;padding:10px;border-radius:12px;margin:10px 0;font-size:13px}
+.note{font-size:11px;color:#6b7280;margin-top:4px}
+</style></head><body>
+<header><div class="title">VINCheck ✓</div><div class="ver">Version 3</div></header><main>
+<div class="actions"><label class="btn" for="cam">📷 Take Photos</label><label class="btn light" for="pick">🖼 Choose Photos</label></div>
+<input id="cam" type="file" accept="image/*" capture="environment" multiple><input id="pick" type="file" accept="image/*" multiple>
+<div id="scan" class="scan"></div>
+<div class="tabs"><button id="aTab" class="on">Active</button><button id="cTab">Completed</button></div>
+<div id="activePane"><div class="toolbar"><span id="acount" class="count"></span><select id="sort"><option value="original">Original order</option><option value="row">Row / Bay</option><option value="status">Status</option><option value="due">Until 24h</option></select></div><div id="active"></div></div>
+<div id="completedPane" style="display:none"><div class="note">Uncheck any vehicle here to move it back to Active.</div><div id="completed"></div></div>
+</main>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script>
-const $=s=>document.querySelector(s),K='vincheck_v2';let db=JSON.parse(localStorage.getItem(K)||'{"active":[],"history":[]}');const save=()=>localStorage.setItem(K,JSON.stringify(db));
-const fd=t=>new Date(t).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}),ft=t=>new Date(t).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
-function extract(text){let L=text.split(/\n/).map(x=>x.trim()).filter(Boolean),o=[];for(let i=0;i<L.length;i++){let c=L[i].toUpperCase().replace(/[^A-Z0-9]/g,''),vs=c.match(/[A-HJ-NPR-Z0-9]{17}/g)||[];for(let vin of vs){let w=L.slice(Math.max(0,i-2),i+7).join(' '),row=(w.match(/(?:ROW\s*\/?\s*BAY|ROW|BAY)\s*[:#-]?\s*(\d{2,4})\b/i)||[])[1]||'',status=(w.match(/(OVERDUE[^\n]{0,18}|NEEDS\s*INSPECT(?:ED|ION)?[^\n]{0,18})/i)||[])[1]||'',until=(w.match(/UNTIL\s*24H\s*[:\-]?\s*(\d+\s*h\s*\d*\s*m|\d+\s*m)/i)||[])[1]||'';o.push({vin,row,status,until,done:false})}}return o}
-async function scan(files){if(!files.length)return;$('#scan').style.display='block';let all=[];for(let i=0;i<files.length;i++){ $('#scan').textContent=`Reading photo ${i+1} of ${files.length}…`;try{let r=await Tesseract.recognize(files[i],'eng');all.push(...extract(r.data.text))}catch(e){}}let s=new Set(),v=all.filter(x=>x.vin&&!s.has(x.vin)&&s.add(x.vin));if(v.length){db.active.push({id:Date.now(),created:Date.now(),sort:'original',vehicles:v});save();renderA();$('#scan').textContent=`New checklist created: ${v.length} vehicles.`}else $('#scan').textContent='No VINs found. Try a clearer photo.';setTimeout(()=>$('#scan').style.display='none',2200)}
-function sortv(b){let a=b.vehicles.map((v,i)=>({...v,i}));if(b.sort==='row')a.sort((x,y)=>(+x.row||9999)-(+y.row||9999));if(b.sort==='status')a.sort((x,y)=>(/overdue/i.test(y.status)?1:0)-(/overdue/i.test(x.status)?1:0));return a}
-function renderA(){let e=$('#active');if(!db.active.length){e.innerHTML='<div class="empty"><b>No active checklists.</b><br>Take photos to create one.</div>';return}e.innerHTML=db.active.map((b,n)=>{let d=b.vehicles.filter(v=>v.done).length;return `<div class="batch"><div class="head"><b>Checklist ${n+1}</b><br><small>${b.vehicles.length} vehicles • ${d} complete • ${ft(b.created)}</small><br><select data-sort="${b.id}"><option value="original">Original order</option><option value="row" ${b.sort==='row'?'selected':''}>Row / Bay</option><option value="status" ${b.sort==='status'?'selected':''}>Status</option></select></div>${sortv(b).map(v=>`<div class="vehicle ${v.done?'done':''}"><input type="checkbox" data-b="${b.id}" data-i="${v.i}" ${v.done?'checked':''}><div><div class="vin">${v.vin}</div><div class="meta">${v.row?'Row / Bay: '+v.row+'<br>':''}<span class="${/overdue/i.test(v.status)?'overdue':''}">${v.status||''}</span>${v.until?'<br>Until 24h: '+v.until:''}</div></div></div>`).join('')}</div>`}).join('');document.querySelectorAll('[data-b]').forEach(c=>c.onchange=()=>{let b=db.active.find(x=>x.id==c.dataset.b);b.vehicles[+c.dataset.i].done=c.checked;if(b.vehicles.every(v=>v.done)){db.active=db.active.filter(x=>x.id!==b.id);b.completed=Date.now();db.history.push(b)}save();renderA();renderH()});document.querySelectorAll('[data-sort]').forEach(s=>s.onchange=()=>{let b=db.active.find(x=>x.id==s.dataset.sort);b.sort=s.value;save();renderA()})}
-function renderH(){let h=[...db.history].sort((a,b)=>b.completed-a.completed),g={};h.forEach(b=>(g[fd(b.completed)]??=[]).push(b));$('#history').innerHTML=h.length?Object.entries(g).map(([d,bs])=>`<div class="date">${d}</div>${bs.map(b=>`<details><summary class="head">✓ ${b.vehicles.length} vehicles • completed ${ft(b.completed)}</summary>${b.vehicles.map(v=>`<div class="vehicle"><div><div class="vin">${v.vin}</div><div class="meta">${v.row?'Row '+v.row:''}</div></div></div>`).join('')}</details>`).join('')}`).join(''):'<div class="empty">Completed checklists will appear here.</div>'}
-$('#cam').onchange=e=>scan([...e.target.files]);$('#pick').onchange=e=>scan([...e.target.files]);$('#ta').onclick=()=>{$('#active').style.display='block';$('#history').style.display='none'};$('#th').onclick=()=>{$('#active').style.display='none';$('#history').style.display='block';renderH()};if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');renderA();renderH();
+const $=s=>document.querySelector(s),K='vincheck_v3';
+let db=JSON.parse(localStorage.getItem(K)||'{"vehicles":[],"sort":"original","seq":0}');
+const save=()=>localStorage.setItem(K,JSON.stringify(db));
+function migrate(){
+ if(db.vehicles.length)return;
+ try{
+  let old=JSON.parse(localStorage.getItem('vincheck_v2')||'null');
+  if(old){
+   [...(old.active||[]),...(old.history||[])].forEach(b=>(b.vehicles||[]).forEach(v=>{
+    if(!db.vehicles.some(x=>x.vin===v.vin)){db.seq++;db.vehicles.push({...v,id:Date.now()+db.seq,order:db.seq,completedAt:v.done?(b.completed||Date.now()):null,importedAt:b.created||Date.now()})}
+   })); save();
+  }
+ }catch(e){}
+} migrate();
+const esc=s=>(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const fd=t=>new Date(t).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
+function mins(s){let h=+(s?.match(/(\d+)\s*h/i)||[0,0])[1],m=+(s?.match(/(\d+)\s*m/i)||[0,0])[1];return h*60+m}
+function extract(text,importId){
+ let L=text.split(/\n/).map(x=>x.trim()).filter(Boolean),o=[];
+ for(let i=0;i<L.length;i++){
+  let c=L[i].toUpperCase().replace(/[^A-Z0-9]/g,''),vins=c.match(/[A-HJ-NPR-Z0-9]{17}/g)||[];
+  for(let vin of vins){
+   let w=L.slice(Math.max(0,i-2),i+7).join(' ');
+   let row=(w.match(/(?:ROW\s*\/?\s*BAY|ROW|BAY)\s*[:#-]?\s*(\d{2,4})\b/i)||[])[1]||'';
+   let status=(w.match(/(OVERDUE\s*[·\-:]?\s*\d+\s*h(?:\s*\d+\s*m)?|NEEDS\s*INSPECT(?:ED|ION)?\s*[·\-:]?\s*\d+\s*h(?:\s*\d+\s*m)?)/i)||[])[1]||'';
+   let until=(w.match(/(?:UNTIL\s*24H)\s*[:\-]?\s*(\d+\s*h\s*\d*\s*m|\d+\s*m)/i)||[])[1]||'';
+   o.push({vin,row,status,until,done:false,completedAt:null,importedAt:Date.now(),importId});
+  }
+ }return o;
+}
+async function scan(files){
+ if(!files.length)return;$('#scan').style.display='block';let all=[],importId=Date.now();
+ for(let i=0;i<files.length;i++){ $('#scan').textContent=`Reading photo ${i+1} of ${files.length}…`;
+  try{let r=await Tesseract.recognize(files[i],'eng');all.push(...extract(r.data.text,importId))}catch(e){}
+ }
+ let seen=new Set(),unique=all.filter(v=>v.vin&&!seen.has(v.vin)&&seen.add(v.vin));
+ let added=0,dupes=0;unique.forEach(v=>{if(db.vehicles.some(x=>x.vin===v.vin&&!x.done)){dupes++;return}db.seq++;v.id=Date.now()+db.seq;v.order=db.seq;db.vehicles.push(v);added++});
+ save();render();$('#scan').innerHTML=`Added <b>${added}</b> vehicle${added===1?'':'s'}${dupes?` • skipped ${dupes} active duplicate${dupes===1?'':'s'}`:''}.`;setTimeout(()=>$('#scan').style.display='none',2400);
+}
+function sortedActive(){
+ let a=db.vehicles.filter(v=>!v.done); if(db.sort==='row')a.sort((x,y)=>(+x.row||99999)-(+y.row||99999)||x.order-y.order);
+ if(db.sort==='status')a.sort((x,y)=>(/overdue/i.test(y.status)?1:0)-(/overdue/i.test(x.status)?1:0)||x.order-y.order);
+ if(db.sort==='due')a.sort((x,y)=>mins(x.until)-mins(y.until)||x.order-y.order); return a;
+}
+function card(v,completed=false){return `<div class="card"><input class="check" type="checkbox" data-id="${v.id}" ${v.done?'checked':''}><div><div class="vin">${esc(v.vin)}</div><div class="meta">${v.row?`<b>Row / Bay:</b> ${esc(v.row)}<br>`:''}${v.status?`<span class="${/overdue/i.test(v.status)?'overdue':''}">${esc(v.status)}</span><br>`:''}${v.until?`<b>Until 24h:</b> ${esc(v.until)}<br>`:''}${completed&&v.completedAt?`Completed ${new Date(v.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}`:''}</div></div></div>`}
+function bind(){document.querySelectorAll('.check').forEach(c=>c.onchange=()=>{let v=db.vehicles.find(x=>x.id==c.dataset.id);v.done=c.checked;v.completedAt=c.checked?Date.now():null;save();render()})}
+function render(){
+ let a=sortedActive();$('#acount').textContent=`${a.length} active vehicle${a.length===1?'':'s'}`;$('#sort').value=db.sort;$('#active').innerHTML=a.length?a.map(v=>card(v)).join(''):'<div class="empty"><b>Nothing active.</b><br>Take photos to add vehicles.</div>';
+ let done=db.vehicles.filter(v=>v.done).sort((a,b)=>b.completedAt-a.completedAt),g={};done.forEach(v=>(g[fd(v.completedAt)]??=[]).push(v));
+ $('#completed').innerHTML=done.length?Object.entries(g).map(([d,vs])=>`<div class="date">${d}</div>${vs.map(v=>card(v,true)).join('')}`).join(''):'<div class="empty">Checked vehicles will appear here.</div>';bind();
+}
+$('#sort').onchange=e=>{db.sort=e.target.value;save();render()};$('#cam').onchange=e=>{scan([...e.target.files]);e.target.value=''};$('#pick').onchange=e=>{scan([...e.target.files]);e.target.value=''};
+$('#aTab').onclick=()=>{$('#activePane').style.display='block';$('#completedPane').style.display='none';$('#aTab').className='on';$('#cTab').className=''};
+$('#cTab').onclick=()=>{$('#activePane').style.display='none';$('#completedPane').style.display='block';$('#cTab').className='on';$('#aTab').className=''};
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');render();
 </script></body></html>
