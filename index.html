@@ -1,6 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>VINCheck V3</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>VINCheck V4</title>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f6f8;color:#111827}
 header{background:#111827;color:#fff;padding:16px;position:sticky;top:0;z-index:3}.title{font-size:22px;font-weight:800}.ver{font-size:11px;opacity:.65}
@@ -12,7 +12,7 @@ input[type=file]{display:none}.tabs button.on{background:#111827;color:#fff}.tab
 .scan{display:none;background:#fffbeb;border:1px solid #fde68a;padding:10px;border-radius:12px;margin:10px 0;font-size:13px}
 .note{font-size:11px;color:#6b7280;margin-top:4px}
 </style></head><body>
-<header><div class="title">VINCheck ✓</div><div class="ver">Version 3</div></header><main>
+<header><div class="title">VINCheck ✓</div><div class="ver">Version 4</div></header><main>
 <div class="actions"><label class="btn" for="cam">📷 Take Photos</label><label class="btn light" for="pick">🖼 Choose Photos</label></div>
 <input id="cam" type="file" accept="image/*" capture="environment" multiple><input id="pick" type="file" accept="image/*" multiple>
 <div id="scan" class="scan"></div>
@@ -21,11 +21,14 @@ input[type=file]{display:none}.tabs button.on{background:#111827;color:#fff}.tab
 <div id="completedPane" style="display:none"><div class="note">Uncheck any vehicle here to move it back to Active.</div><div id="completed"></div></div>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script>
-const $=s=>document.querySelector(s),K='vincheck_v3';
+const $=s=>document.querySelector(s),K='vincheck_v4';
 let db=JSON.parse(localStorage.getItem(K)||'{"vehicles":[],"sort":"original","seq":0}');
 const save=()=>localStorage.setItem(K,JSON.stringify(db));
+function parseDuration(s){let h=+(s?.match(/(\d+)\s*h/i)||[0,0])[1],m=+(s?.match(/(\d+)\s*m/i)||[0,0])[1];return h*60+m}
+function liveDue(v){if(!v.deadlineAt)return v.status||'';let d=v.deadlineAt-Date.now(),late=d<0,n=Math.abs(Math.ceil(d/60000)),h=Math.floor(n/60),m=n%60,txt=(h?h+'h ':'')+m+'m';return late?'OVERDUE · '+txt:txt+' remaining'}
 function migrate(){
  if(db.vehicles.length)return;
+ try{let v3=JSON.parse(localStorage.getItem('vincheck_v3')||'null');if(v3&&v3.vehicles){db=v3;db.vehicles.forEach(v=>{if(v.until&&!v.deadlineAt&&!v.done){let n=parseDuration(v.until);if(n)v.deadlineAt=Date.now()+n*60000}});save();return}}catch(e){}
  try{
   let old=JSON.parse(localStorage.getItem('vincheck_v2')||'null');
   if(old){
@@ -47,7 +50,7 @@ function extract(text,importId){
    let row=(w.match(/(?:ROW\s*\/?\s*BAY|ROW|BAY)\s*[:#-]?\s*(\d{2,4})\b/i)||[])[1]||'';
    let status=(w.match(/(OVERDUE\s*[·\-:]?\s*\d+\s*h(?:\s*\d+\s*m)?|NEEDS\s*INSPECT(?:ED|ION)?\s*[·\-:]?\s*\d+\s*h(?:\s*\d+\s*m)?)/i)||[])[1]||'';
    let until=(w.match(/(?:UNTIL\s*24H)\s*[:\-]?\s*(\d+\s*h\s*\d*\s*m|\d+\s*m)/i)||[])[1]||'';
-   o.push({vin,row,status,until,done:false,completedAt:null,importedAt:Date.now(),importId});
+   let dm=parseDuration(until);o.push({vin,row,status,until,deadlineAt:dm?Date.now()+dm*60000:null,done:false,completedAt:null,importedAt:Date.now(),importId});
   }
  }return o;
 }
@@ -63,9 +66,9 @@ async function scan(files){
 function sortedActive(){
  let a=db.vehicles.filter(v=>!v.done); if(db.sort==='row')a.sort((x,y)=>(+x.row||99999)-(+y.row||99999)||x.order-y.order);
  if(db.sort==='status')a.sort((x,y)=>(/overdue/i.test(y.status)?1:0)-(/overdue/i.test(x.status)?1:0)||x.order-y.order);
- if(db.sort==='due')a.sort((x,y)=>mins(x.until)-mins(y.until)||x.order-y.order); return a;
+ if(db.sort==='due')a.sort((x,y)=>(x.deadlineAt||Infinity)-(y.deadlineAt||Infinity)||x.order-y.order); return a;
 }
-function card(v,completed=false){return `<div class="card"><input class="check" type="checkbox" data-id="${v.id}" ${v.done?'checked':''}><div><div class="vin">${esc(v.vin)}</div><div class="meta">${v.row?`<b>Row / Bay:</b> ${esc(v.row)}<br>`:''}${v.status?`<span class="${/overdue/i.test(v.status)?'overdue':''}">${esc(v.status)}</span><br>`:''}${v.until?`<b>Until 24h:</b> ${esc(v.until)}<br>`:''}${completed&&v.completedAt?`Completed ${new Date(v.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}`:''}</div></div></div>`}
+function card(v,completed=false){return `<div class="card"><input class="check" type="checkbox" data-id="${v.id}" ${v.done?'checked':''}><div><div class="vin">${esc(v.vin)}</div><div class="meta">${v.row?`<b>Row / Bay:</b> ${esc(v.row)}<br>`:''}${!completed&&(v.deadlineAt||v.status)?`<span class="${/OVERDUE/i.test(liveDue(v))?'overdue':''}"><b>${esc(liveDue(v))}</b></span><br>`:''}${completed&&v.completedAt?`Completed ${new Date(v.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}`:''}</div></div></div>`}
 function bind(){document.querySelectorAll('.check').forEach(c=>c.onchange=()=>{let v=db.vehicles.find(x=>x.id==c.dataset.id);v.done=c.checked;v.completedAt=c.checked?Date.now():null;save();render()})}
 function render(){
  let a=sortedActive();$('#acount').textContent=`${a.length} active vehicle${a.length===1?'':'s'}`;$('#sort').value=db.sort;$('#active').innerHTML=a.length?a.map(v=>card(v)).join(''):'<div class="empty"><b>Nothing active.</b><br>Take photos to add vehicles.</div>';
@@ -75,5 +78,5 @@ function render(){
 $('#sort').onchange=e=>{db.sort=e.target.value;save();render()};$('#cam').onchange=e=>{scan([...e.target.files]);e.target.value=''};$('#pick').onchange=e=>{scan([...e.target.files]);e.target.value=''};
 $('#aTab').onclick=()=>{$('#activePane').style.display='block';$('#completedPane').style.display='none';$('#aTab').className='on';$('#cTab').className=''};
 $('#cTab').onclick=()=>{$('#activePane').style.display='none';$('#completedPane').style.display='block';$('#cTab').className='on';$('#aTab').className=''};
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');render();
+setInterval(()=>{if($('#activePane').style.display!=='none')render()},30000);if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');render();
 </script></body></html>
