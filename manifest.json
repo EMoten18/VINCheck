@@ -1,9 +1,8 @@
 {
-  "name": "VIN Check",
-  "short_name": "VIN Check",
+  "name": "VINCheck",
+  "short_name": "VINCheck",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f5f6f8",
-  "theme_color": "#111827",
-  "icons": []
+  "theme_color": "#111827"
 }
