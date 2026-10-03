@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<link rel="manifest" href="manifest.json">
+<title>VIN Check</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--danger:#b42318;--ok:#166534}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:4;background:#111827;color:#fff;padding:16px 16px 13px}
+h1{font-size:22px;margin:0}.sub{font-size:12px;opacity:.75;margin-top:3px}
+main{max-width:760px;margin:auto;padding:14px 14px 90px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+button,.btn{border:0;border-radius:12px;padding:13px 12px;font-size:15px;font-weight:700;background:#111827;color:#fff;text-align:center}
+.secondary{background:#fff;color:#111827;border:1px solid var(--line)}
+input[type=file]{display:none}
+.stats{display:flex;gap:8px;margin:10px 0}.pill{background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:13px}
+.toolbar{display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap}
+select{font-size:14px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:9px 0;display:grid;grid-template-columns:42px 1fr;gap:9px}
+.card.done{opacity:.5}.card.done .vin{text-decoration:line-through}
+.check{width:28px;height:28px;margin-top:4px}
+.vin{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:16px;font-weight:800;letter-spacing:.25px;word-break:break-all}
+.meta{font-size:13px;color:var(--muted);margin-top:5px;line-height:1.4}.overdue{color:var(--danger);font-weight:800}
+.warn{color:#92400e;font-weight:700}.empty{text-align:center;color:var(--muted);padding:35px 15px}
+#progress{height:5px;background:#ddd;border-radius:4px;overflow:hidden;display:none;margin:8px 0}#bar{height:100%;background:#111827;width:0}
+.review{background:#fffbeb;border:1px solid #fde68a;padding:10px;border-radius:12px;font-size:13px;margin:10px 0;display:none}
+.small{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><h1>VIN Check</h1><div class="sub">Photo → vehicle checklist</div></header>
+<main>
+<div class="actions">
+<label class="btn" for="camera">📷 Take Photos</label>
+<label class="btn secondary" for="photos">🖼 Choose Photos</label>
+<input id="camera" type="file" accept="image/*" capture="environment" multiple>
+<input id="photos" type="file" accept="image/*" multiple>
+<button id="newBtn" class="secondary">New List</button>
+<button id="copyBtn" class="secondary">Copy List</button>
+</div>
+<div id="progress"><div id="bar"></div></div>
+<div id="review" class="review"></div>
+<div class="stats"><span class="pill" id="total">0 vehicles</span><span class="pill" id="complete">0 complete</span><span class="pill" id="remaining">0 remaining</span></div>
+<div class="toolbar">
+<label for="sort"><b>Sort:</b></label>
+<select id="sort">
+<option value="original">Original photo order</option>
+<option value="row">Row / Bay</option>
+<option value="due">Until 24h</option>
+<option value="status">Status / overdue</option>
+</select>
+<span class="small">Sorting only changes the view.</span>
+</div>
+<div id="list" class="empty">Take photos of the vehicle list to begin.</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+let items=JSON.parse(localStorage.getItem('vincheck_items')||'[]');
+let seq=items.reduce((m,x)=>Math.max(m,x.order||0),0)+1;
+const save=()=>localStorage.setItem('vincheck_items',JSON.stringify(items));
+
+function validVIN(v){return /^[A-HJ-NPR-Z0-9]{17}$/.test(v)}
+function parseDuration(s){
+  if(!s)return 999999; let h=+(s.match(/(\d+)\s*h/i)||[0,0])[1],m=+(s.match(/(\d+)\s*m/i)||[0,0])[1]; return h*60+m;
+}
+function extract(text){
+ const lines=text.split(/\n/).map(x=>x.trim()).filter(Boolean);
+ const found=[];
+ // VIN candidates: allow OCR spaces, then normalize.
+ for(let i=0;i<lines.length;i++){
+   const normalized=lines[i].toUpperCase().replace(/[^A-Z0-9]/g,'');
+   const vinMatches=normalized.match(/[A-HJ-NPR-Z0-9]{17}/g)||[];
+   for(const vin of vinMatches){
+     const window=lines.slice(Math.max(0,i-2),Math.min(lines.length,i+6)).join(' ');
+     const rowMatch=window.match(/(?:ROW\s*\/?\s*BAY|ROW|BAY)?\s*[:#-]?\s*(\d{2,4})\b/i);
+     const statusMatch=window.match(/(OVERDUE\s*[·\-:]?\s*\d+\s*h(?:\s*\d+\s*m)?|NEEDS\s*INSPECT(?:ED|ION)?\s*[·\-:]?\s*\d+\s*h(?:\s*\d+\s*m)?)/i);
+     const untilMatch=window.match(/(?:UNTIL\s*24H)?\s*[:\-]?\s*(\d+\s*h\s*\d*\s*m|\d+\s*m)\b/i);
+     const dateMatch=window.match(/(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)[A-Z]*\s+\d{1,2},?\s+\d{4}[^|]{0,25}(?:AM|PM)?(?:\s+E[DS]T)?/i);
+     found.push({vin,row:rowMatch?rowMatch[1]:'',status:statusMatch?statusMatch[1].replace(/\s+/g,' '):'',firstSeen:dateMatch?dateMatch[0].replace(/\s+/g,' '):'',until:untilMatch?untilMatch[1].replace(/\s+/g,' '):'',done:false,order:seq++,uncertain:!validVIN(vin)});
+   }
+ }
+ return found;
+}
+async function scan(files){
+ if(!files.length)return;
+ $('#progress').style.display='block'; $('#review').style.display='block';
+ let added=0, dupes=0;
+ for(let i=0;i<files.length;i++){
+   $('#review').textContent=`Reading photo ${i+1} of ${files.length}…`;
+   $('#bar').style.width=`${(i/files.length)*100}%`;
+   try{
+     const r=await Tesseract.recognize(files[i],'eng',{logger:m=>{if(m.status==='recognizing text')$('#bar').style.width=`${((i+m.progress)/files.length)*100}%`}});
+     const got=extract(r.data.text);
+     for(const x of got){
+       if(items.some(y=>y.vin===x.vin)){dupes++;continue}
+       items.push(x); added++;
+     }
+   }catch(e){console.error(e)}
+ }
+ save(); render(); $('#bar').style.width='100%';
+ $('#review').innerHTML=`Found <b>${added}</b> new vehicle${added===1?'':'s'}${dupes?` and skipped ${dupes} duplicate${dupes===1?'':'s'}`:''}. <b>Please review VINs/rows before starting.</b>`;
+ setTimeout(()=>$('#progress').style.display='none',700);
+}
+function render(){
+ let arr=[...items],mode=$('#sort').value;
+ if(mode==='row')arr.sort((a,b)=>(+a.row||99999)-(+b.row||99999)||a.order-b.order);
+ if(mode==='due')arr.sort((a,b)=>parseDuration(a.until)-parseDuration(b.until)||a.order-b.order);
+ if(mode==='status')arr.sort((a,b)=>(/overdue/i.test(b.status)?1:0)-(/overdue/i.test(a.status)?1:0)||a.order-b.order);
+ const done=items.filter(x=>x.done).length;
+ $('#total').textContent=`${items.length} vehicles`; $('#complete').textContent=`${done} complete`; $('#remaining').textContent=`${items.length-done} remaining`;
+ if(!arr.length){$('#list').className='empty';$('#list').innerHTML='Take photos of the vehicle list to begin.';return}
+ $('#list').className='';
+ $('#list').innerHTML=arr.map(x=>`<div class="card ${x.done?'done':''}">
+ <input class="check" type="checkbox" ${x.done?'checked':''} data-order="${x.order}">
+ <div><div class="vin">${x.vin} ${x.uncertain?'<span class="warn">⚠︎</span>':''}</div>
+ <div class="meta">${x.row?`<b>Row / Bay:</b> ${x.row}<br>`:''}${x.status?`<span class="${/overdue/i.test(x.status)?'overdue':''}">${x.status}</span><br>`:''}${x.firstSeen?`<b>First Seen:</b> ${x.firstSeen}<br>`:''}${x.until?`<b>Until 24h:</b> ${x.until}`:''}</div></div></div>`).join('');
+ document.querySelectorAll('.check').forEach(c=>c.onchange=()=>{let x=items.find(v=>v.order==c.dataset.order);x.done=c.checked;save();render()});
+}
+$('#camera').onchange=e=>scan([...e.target.files]); $('#photos').onchange=e=>scan([...e.target.files]);
+$('#sort').onchange=render;
+$('#newBtn').onclick=()=>{if(confirm('Start a new list? This clears the current checklist.')){items=[];seq=1;save();$('#review').style.display='none';render()}};
+$('#copyBtn').onclick=async()=>{let t=items.map(x=>`${x.done?'☑':'☐'} ${x.row?x.row+' | ':''}${x.vin}${x.status?' | '+x.status:''}`).join('\n');await navigator.clipboard.writeText(t);alert('Checklist copied.')};
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+render();
+</script>
+</body></html>
