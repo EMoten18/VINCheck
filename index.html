@@ -1,6 +1,6 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>VINCheck V4</title>
+<meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.json"><title>VINCheck V5</title>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f6f8;color:#111827}
 header{background:#111827;color:#fff;padding:16px;position:sticky;top:0;z-index:3}.title{font-size:22px;font-weight:800}.ver{font-size:11px;opacity:.65}
@@ -11,8 +11,11 @@ input[type=file]{display:none}.tabs button.on{background:#111827;color:#fff}.tab
 .card{display:grid;grid-template-columns:42px 1fr;background:#fff;border:1px solid #e5e7eb;border-radius:13px;padding:11px;margin:8px 0}.check{width:28px;height:28px}.vin{font-family:ui-monospace,Menlo,monospace;font-weight:850;font-size:15px;word-break:break-all}.meta{font-size:12px;color:#6b7280;line-height:1.5;margin-top:4px}.overdue{color:#b42318;font-weight:800}.date{font-size:18px;font-weight:850;margin:20px 2px 8px}.empty{text-align:center;color:#6b7280;padding:42px 15px}
 .scan{display:none;background:#fffbeb;border:1px solid #fde68a;padding:10px;border-radius:12px;margin:10px 0;font-size:13px}
 .note{font-size:11px;color:#6b7280;margin-top:4px}
+.rowActions{display:flex;gap:6px;margin-top:8px}.mini{flex:0 0 auto!important;padding:7px 10px!important;font-size:12px!important;border-radius:8px!important}
+.editBtn{background:#fff!important;color:#111827!important;border:1px solid #d1d5db!important}.deleteBtn{background:#fff!important;color:#b42318!important;border:1px solid #fecaca!important}
+.editor{display:none;margin-top:9px;padding:9px;background:#f9fafb;border-radius:9px}.editor input{width:100%;padding:8px;margin:4px 0;border:1px solid #d1d5db;border-radius:7px;font-size:13px}
 </style></head><body>
-<header><div class="title">VINCheck ✓</div><div class="ver">Version 4</div></header><main>
+<header><div class="title">VINCheck ✓</div><div class="ver">Version 5</div></header><main>
 <div class="actions"><label class="btn" for="cam">📷 Take Photos</label><label class="btn light" for="pick">🖼 Choose Photos</label></div>
 <input id="cam" type="file" accept="image/*" capture="environment" multiple><input id="pick" type="file" accept="image/*" multiple>
 <div id="scan" class="scan"></div>
@@ -21,7 +24,7 @@ input[type=file]{display:none}.tabs button.on{background:#111827;color:#fff}.tab
 <div id="completedPane" style="display:none"><div class="note">Uncheck any vehicle here to move it back to Active.</div><div id="completed"></div></div>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script><script>
-const $=s=>document.querySelector(s),K='vincheck_v4';
+const $=s=>document.querySelector(s),K='vincheck_v5';
 let db=JSON.parse(localStorage.getItem(K)||'{"vehicles":[],"sort":"original","seq":0}');
 const save=()=>localStorage.setItem(K,JSON.stringify(db));
 function parseDuration(s){let h=+(s?.match(/(\d+)\s*h/i)||[0,0])[1],m=+(s?.match(/(\d+)\s*m/i)||[0,0])[1];return h*60+m}
@@ -68,8 +71,16 @@ function sortedActive(){
  if(db.sort==='status')a.sort((x,y)=>(/overdue/i.test(y.status)?1:0)-(/overdue/i.test(x.status)?1:0)||x.order-y.order);
  if(db.sort==='due')a.sort((x,y)=>(x.deadlineAt||Infinity)-(y.deadlineAt||Infinity)||x.order-y.order); return a;
 }
-function card(v,completed=false){return `<div class="card"><input class="check" type="checkbox" data-id="${v.id}" ${v.done?'checked':''}><div><div class="vin">${esc(v.vin)}</div><div class="meta">${v.row?`<b>Row / Bay:</b> ${esc(v.row)}<br>`:''}${!completed&&(v.deadlineAt||v.status)?`<span class="${/OVERDUE/i.test(liveDue(v))?'overdue':''}"><b>${esc(liveDue(v))}</b></span><br>`:''}${completed&&v.completedAt?`Completed ${new Date(v.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}`:''}</div></div></div>`}
-function bind(){document.querySelectorAll('.check').forEach(c=>c.onchange=()=>{let v=db.vehicles.find(x=>x.id==c.dataset.id);v.done=c.checked;v.completedAt=c.checked?Date.now():null;save();render()})}
+function card(v,completed=false){return `<div class="card"><input class="check" type="checkbox" data-id="${v.id}" ${v.done?'checked':''}><div><div class="vin">${esc(v.vin)}</div><div class="meta">${v.row?`<b>Row / Bay:</b> ${esc(v.row)}<br>`:''}${!completed&&(v.deadlineAt||v.status)?`<span class="${/OVERDUE/i.test(liveDue(v))?'overdue':''}"><b>${esc(liveDue(v))}</b></span><br>`:''}${completed&&v.completedAt?`Completed ${new Date(v.completedAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}`:''}</div>
+<div class="rowActions"><button class="mini editBtn" data-edit="${v.id}">Edit</button><button class="mini deleteBtn" data-delete="${v.id}">Delete</button></div>
+<div class="editor" id="editor-${v.id}"><input id="vin-${v.id}" value="${esc(v.vin)}" maxlength="17" placeholder="VIN"><input id="row-${v.id}" value="${esc(v.row||'')}" placeholder="Row / Bay"><button class="mini" data-save="${v.id}">Save</button></div>
+</div></div>`}
+function bind(){
+ document.querySelectorAll('.check').forEach(c=>c.onchange=()=>{let v=db.vehicles.find(x=>x.id==c.dataset.id);v.done=c.checked;v.completedAt=c.checked?Date.now():null;save();render()});
+ document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{let e=document.getElementById('editor-'+b.dataset.edit);e.style.display=e.style.display==='block'?'none':'block'});
+ document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{let v=db.vehicles.find(x=>x.id==b.dataset.delete);if(confirm('Delete this vehicle?\n\n'+(v?v.vin:''))){db.vehicles=db.vehicles.filter(x=>x.id!=b.dataset.delete);save();render()}});
+ document.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>{let v=db.vehicles.find(x=>x.id==b.dataset.save);if(!v)return;let vin=document.getElementById('vin-'+b.dataset.save).value.toUpperCase().replace(/[^A-Z0-9]/g,'').trim(),row=document.getElementById('row-'+b.dataset.save).value.trim();if(vin.length!==17){alert('VIN should be 17 characters. Please check it.');return}v.vin=vin;v.row=row;save();render()});
+}
 function render(){
  let a=sortedActive();$('#acount').textContent=`${a.length} active vehicle${a.length===1?'':'s'}`;$('#sort').value=db.sort;$('#active').innerHTML=a.length?a.map(v=>card(v)).join(''):'<div class="empty"><b>Nothing active.</b><br>Take photos to add vehicles.</div>';
  let done=db.vehicles.filter(v=>v.done).sort((a,b)=>b.completedAt-a.completedAt),g={};done.forEach(v=>(g[fd(v.completedAt)]??=[]).push(v));
